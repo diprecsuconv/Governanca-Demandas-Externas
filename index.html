@@ -179,8 +179,7 @@ h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:27px;letter-
   <div class="wrap head-grid">
     <div>
       <div class="eyebrow">SES/DF · SUCONV · DIPREC</div>
-      <h1>Painel de<br>Representações</h1>
-      <p class="sub">Acompanhamento das representações e demandas de órgãos de controle — origem, andamento, prazos e o que ainda está pendente de resposta.</p>
+      <h1>Painel de Governança e<br>Demandas Externas</h1>
     </div>
     <div class="head-right">
       <button id="btn-refresh">↻ Atualizar</button>
@@ -241,7 +240,7 @@ h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:27px;letter-
   <div class="section-h"><h2>Representações</h2><div class="rule"></div><span class="cnt" id="tbl-count"></span></div>
   <div class="table-panel" id="table"></div>
   </div>
-  <div class="foot">Painel de Representações · SUCONV/DIPREC · dados atualizáveis pela planilha</div>
+  <div class="foot">Painel de Governança e Demandas Externas · SUCONV/DIPREC · dados atualizáveis pela planilha</div>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -261,26 +260,39 @@ const C={
 };
 
 function norm(s){return String(s==null?"":s).replace(/\s+/g," ").trim();}
-function origemDe(row){
-  const t=(norm(row[C.rep])+" "+norm(row[C.assunto])).toLowerCase();
-  const rep=norm(row[C.rep]).toLowerCase();
+function classifyOrgao(t){
+  // t = texto normalizado em minúsculas. Ordem importa: nomes explícitos de
+  // órgão vêm ANTES do heurístico "g2p" (código interno de processo, que
+  // aparece também em representações do TCDF).
   if(t.includes("denasus"))return "DENASUS";
   if(t.includes("controladoria-geral da uni")||/\bcgu\b/.test(t))return "CGU";
-  if(t.includes("cgdf")||t.includes("controladoria-geral do df"))return "CGDF";
+  if(t.includes("cgdf")||t.includes("controladoria-geral do df")||t.includes("controladoria-geral do distrito"))return "CGDF";
   if(t.includes("mpdft"))return "MPDFT";
-  if((t.includes("minist")&&t.includes("contas"))||/\bmpc\b/.test(t)||t.includes("g2p"))return "Ministério Público de Contas";
+  if(t.includes("mpf")||t.includes("ministério público federal")||t.includes("ministerio publico federal")||t.includes("notícia de fato")||t.includes("noticia de fato"))return "MPF";
+  if((t.includes("minist")&&t.includes("contas"))||t.includes("mpc"))return "Ministério Público de Contas";
   if(t.includes("tcdf")&&t.includes("tcu"))return "TCDF e TCU";
   if(t.includes("tcdf"))return "TCDF";
   if(t.includes("tcu"))return "TCU";
   if(t.includes("pgdf"))return "PGDF";
   if(/\bstf\b/.test(t))return "STF";
   if(t.includes("câmara dos deputados")||t.includes("camara dos deputados"))return "Câmara dos Deputados";
-  if(t.includes("justiça do trabalho"))return "Justiça do Trabalho";
-  if(/\bcrm\b/.test(t))return "CRM-DF";
-  if(t.includes("ouvidoria")||t.includes("ouv-"))return "Ouvidoria";
-  if(t.includes("notícia de fato")||t.includes("noticia de fato"))return "MPF";
-  if(rep.includes("não se aplica")||rep==="")return "Outros órgãos";
-  return "Outros";
+  if(t.includes("justiça do trabalho")||t.includes("justica do trabalho"))return "Justiça do Trabalho";
+  if(/\bcrm\b/.test(t)||t.includes("crm-df"))return "CRM-DF";
+  if(t.includes("ouvidoria")||t.includes("ouv-")||/\bouv\b/.test(t))return "Ouvidoria";
+  if(t.includes("g2p"))return "Ministério Público de Contas"; // código G2P (MPC) — só depois dos nomes explícitos
+  return null;
+}
+function origemDe(row){
+  const rep=norm(row[C.rep]).toLowerCase();
+  // 1) A coluna REPRESENTAÇÃO é a origem autoritativa — classifica só por ela.
+  if(rep && !rep.includes("não se aplica") && !rep.includes("nao se aplica")){
+    const o=classifyOrgao(rep);
+    if(o)return o;
+  }
+  // 2) Fallback: só quando a REPRESENTAÇÃO não traz o órgão, procura no ASSUNTO.
+  const o2=classifyOrgao(norm(row[C.assunto]).toLowerCase());
+  if(o2)return o2;
+  return "Outros órgãos";
 }
 function normStatus(s){
   s=norm(s).toLowerCase();
