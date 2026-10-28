@@ -416,11 +416,20 @@ function areaDe(r){
   if(v==null){for(const k in r.row){const kk=norm(k).toLowerCase();if(kk.includes("área deman")||kk.includes("area deman")||kk.includes("área atual")||kk.includes("area atual")||kk.includes("onde est")){v=r.row[k];break;}}}
   v=norm(v);return (!v||v.toUpperCase()==="NÃO SE APLICA")?"":v;
 }
-function areasLista(r){const v=areaDe(r);return v?v.split(/[,;/]+| e /).map(s=>s.trim()).filter(Boolean):[];}
-function prazoRespDe(r){let v=r.row[C.prazoResp];if(v==null){for(const k in r.row){const kk=norm(k).toLowerCase();if(kk.includes("prazo")&&(kk.includes("deman")||kk.includes("resposta")&&kk.includes("área")))v=r.row[k];}}return parseData(v);}
+function splitLista(v){v=norm(v);return v?v.split(/\s*[,;]\s*/).map(s=>s.trim()).filter(Boolean):[];}
+function areasLista(r){return splitLista(areaDe(r));}
+function prazoRespRaw(r){let v=r.row[C.prazoResp];if(v==null){for(const k in r.row){const kk=norm(k).toLowerCase();if(kk.includes("prazo")&&(kk.includes("deman")||(kk.includes("resposta")&&kk.includes("área"))))v=r.row[k];}}return norm(v);}
+function prazoRespDe(r){return parseData(prazoRespRaw(r));}
+function prazosRespLista(r){return splitLista(prazoRespRaw(r)).map(parseData);}
 function renderAgenda(){
-  const items=records.map(r=>({r,pi:parseData(r.row[C.prazoInt]),pf:parseData(r.row[C.prazoFim]),rec:parseData(r.row[C.receb]),pr:prazoRespDe(r),areas:areasLista(r)}))
-    .filter(x=>(x.pf||x.pi) && x.r.status!=="Concluído");
+  const items=records.map(r=>{
+    const areas=areasLista(r);
+    const prazosU=prazosRespLista(r);
+    const paired=areas.length>0 && prazosU.length===areas.length;
+    const prCand=(paired?prazosU:[prazoRespDe(r)]).filter(Boolean);
+    const pr=prCand.length?new Date(Math.min(...prCand.map(d=>d.getTime()))):null;
+    return {r,pi:parseData(r.row[C.prazoInt]),pf:parseData(r.row[C.prazoFim]),rec:parseData(r.row[C.receb]),pr,areas,prazosU,paired};
+  }).filter(x=>(x.pf||x.pi) && x.r.status!=="Concluído");
   const el=document.getElementById("agenda-section");
   const dd=d=>Math.round((d-HOJE)/86400000);
   if(!items.length){
@@ -440,7 +449,7 @@ function renderAgenda(){
     if(n<0)return `<span class="ag-days" style="background:var(--venc-l);color:var(--venc)">${-n} ${-n===1?'dia':'dias'} de atraso</span>`;
     if(n===0)return `<span class="ag-days" style="background:var(--pend-l);color:var(--pend)">vence hoje</span>`;
     return `<span class="ag-days" style="background:${n<=7?'var(--pend-l)':'var(--conc-l)'};color:${n<=7?'var(--pend)':'var(--conc)'}">faltam ${n} ${n===1?'dia':'dias'}</span>`;};
-  const item=({r,pi,pf,rec,pr,areas})=>{
+  const item=({r,pi,pf,rec,pr,areas,prazosU,paired})=>{
     const sc=(STATUS_META[r.status]||{c:'var(--ink-3)'}).c;
     const btn=(lbl,d,tipo)=>{
       if(!d)return "";
@@ -450,10 +459,21 @@ function renderAgenda(){
       const bd=(tipo==="int"||tipo==="fim"||tipo==="resp")?`<div class="rp-badge">${dd(d)<0?`${-dd(d)}d atraso`:dd(d)===0?"hoje":`faltam ${dd(d)}d`}</div>`:"";
       return `<div class="rp-btn ${cls}"><div class="rp-n">${lbl}</div><div class="rp-v">${fmtBR(d)}</div>${bd}</div>`;
     };
-    const areaBtns=(areas&&areas.length)?areas.map(a=>`<div class="rp-btn rp-area"><div class="rp-n">📍 Unidade(s) demandada(s)</div><div class="rp-v">${a}</div></div>`).join(""):"";
+    const prazoBtn=(lbl,d)=>{const n=dd(d);const cls=n<0?"rp-venc":(n<=7?"rp-prox":"rp-dia");const bd=`<div class="rp-badge">${n<0?`${-n}d atraso`:n===0?"hoje":`faltam ${n}d`}</div>`;return `<div class="rp-btn ${cls}"><div class="rp-n">${lbl}</div><div class="rp-v">${fmtBR(d)}</div>${bd}</div>`;};
+    let unidHtml="";
+    if(paired){
+      // cada unidade com o seu próprio prazo, lado a lado
+      unidHtml=areas.map((a,i)=>{
+        const d=prazosU[i];
+        return `<div class="rp-btn rp-area"><div class="rp-n">📍 Unidade</div><div class="rp-v">${a}</div></div>`+(d?prazoBtn("⏳ Prazo · "+a,d):"");
+      }).join("");
+    } else {
+      const areaBtns=(areas&&areas.length)?areas.map(a=>`<div class="rp-btn rp-area"><div class="rp-n">📍 Unidade(s) demandada(s)</div><div class="rp-v">${a}</div></div>`).join(""):"";
+      unidHtml=areaBtns+btn("Prazo resposta da(s) unidade(s)",pr,"resp");
+    }
     return `<div class="rp-card" data-proc="${r.proc}">
       <div class="rp-head"><div><div class="rp-assunto">${r.assunto||r.proc}</div><div class="rp-proc">${r.proc}</div></div><div class="rp-meta"><span class="orgtag">${r.origem}</span><span class="chip" style="background:${sc}1f;color:${sc}">${r.status}</span></div></div>
-      <div class="rp-track">${btn("Recebido",rec,"rec")}${btn("Prazo interno",pi,"int")}${areaBtns}${btn("Prazo resposta da(s) unidade(s)",pr,"resp")}${btn("Prazo final",pf,"fim")}</div>
+      <div class="rp-track">${btn("Recebido",rec,"rec")}${btn("Prazo interno",pi,"int")}${unidHtml}${btn("Prazo final",pf,"fim")}</div>
     </div>`;
   };
   let html=`<div class="section-h"><h2>Acompanhamento</h2><div class="rule"></div><span class="cnt">${items.length} em andamento</span></div>
@@ -552,10 +572,14 @@ function fmtDataStr(raw){const s=norm(raw);if(!s)return s;const m=s.match(/^(\d{
 function di(lbl,val,full){val=norm(val);if(!val||val.toUpperCase()==="NÃO SE APLICA")return "";return `<div class="det-item ${full?'det-full':''}"><div class="det-lbl">${lbl}</div><div class="det-val">${val}</div></div>`;}
 function detail(r,i){
   const w=r.row;
+  const dAreas=areasLista(r), dPraz=prazosRespLista(r);
+  const unidDet=(dAreas.length && dPraz.length===dAreas.length)
+    ? di("Unidade(s) e prazo(s) de resposta", dAreas.map((a,k)=>`${a} — ${dPraz[k]?fmtBR(dPraz[k]):'sem prazo'}`).join(" · "), true)
+    : di("Unidade(s) demandada(s)",areaDe(r))+di("Prazo resposta da(s) unidade(s) demandada(s)",fmtDataStr(w[C.prazoResp]));
   const cells=[
     di("Data de recebimento",fmtDataStr(w[C.receb])),di("Nº Decisão",w[C.decisao]),di("Nº Auditoria",w[C.auditoria]),
     di("Processo TCDF/TCU",w[C.proctc]),di("Origem (planilha)",w[C.rep]),di("Emenda",w[C.emenda]),
-    di("Prazo interno",fmtDataStr(w[C.prazoInt])),di("Prazo final",fmtDataStr(w[C.prazoFim])),di("Unidade(s) demandada(s)",areaDe(r)),di("Prazo resposta da(s) unidade(s) demandada(s)",fmtDataStr(w[C.prazoResp])),di("Data da resposta",fmtDataStr(w[C.dataResp])),
+    di("Prazo interno",fmtDataStr(w[C.prazoInt])),di("Prazo final",fmtDataStr(w[C.prazoFim])),unidDet,di("Data da resposta",fmtDataStr(w[C.dataResp])),
     di("Providência adotada",w[C.prov],true),
     di("Nº documento de resposta (SUCONV/DIPREC)",w[C.docResp]||w["Nº Documento de Resposta (SUCONV/DIPREC)"]||w["Nº Documento de Resposta (SUCONV)"]),di("Encaminhamento",w[C.encam]),
     di("Nº documento encaminhado",w[C.docEncam]),di("Data encaminhamento",fmtDataStr(w[C.dataEncam])),
